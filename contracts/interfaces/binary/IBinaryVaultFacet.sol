@@ -58,7 +58,7 @@ interface IBinaryVaultFacet is IBinaryVault {
 
     function getManagementFee() external view returns (uint256 feeAmount);
 
-    function generateTokenURI(uint256 tokenId)
+    function getManifestPlainText(uint256 tokenId)
         external
         view
         returns (string memory);
@@ -84,17 +84,16 @@ interface IBinaryVaultFacet is IBinaryVault {
 
     function watermark() external view returns (uint256);
 
-    function pendingWithdrawalTokenAmount() external view returns (uint256);
-
-    function pendingWithdrawalShareAmount() external view returns (uint256);
+    function pendingWithdrawalAmount() external view returns (uint256, uint256);
 
     function withdrawalDelayTime() external view returns (uint256);
 
-    function isDepositPaused() external view returns (bool);
-
     function isWhitelistedUser(address user) external view returns (bool);
 
-    function isUseWhitelist() external view returns (bool);
+    function isUseWhitelistAndIsDepositPaused()
+        external
+        view
+        returns (bool, bool);
 
     function enableUseWhitelist(bool value) external;
 

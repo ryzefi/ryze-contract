@@ -45,6 +45,8 @@ library BinaryVaultFacetStorage {
         uint256 currentHourlyExposureAmount;
         bool pauseNewDeposit;
         bool useWhitelist;
+        // prevent to call initialize function twice
+        bool initialized;
     }
 
     bytes32 internal constant STORAGE_SLOT =
@@ -78,12 +80,16 @@ contract BinaryVaultFacet is
         uint256 oldTokenId,
         uint256 newTokenId,
         uint256 amount,
-        uint256 newShareAmount
+        uint256 newShareAmount,
+        uint256 newSnapshot,
+        uint256 newTokenValue
     );
     event PositionMerged(
         address indexed user,
         uint256[] tokenIds,
-        uint256 newTokenId
+        uint256 newTokenId,
+        uint256 newSnapshot,
+        uint256 newTokenValue
     );
     event LiquidityRemoved(
         address indexed user,
@@ -91,12 +97,16 @@ contract BinaryVaultFacet is
         uint256 newTokenId,
         uint256 amount,
         uint256 shareAmount,
-        uint256 newShares
+        uint256 newShares,
+        uint256 newSnapshot,
+        uint256 newTokenValue,
+        uint256 fee
     );
     event WithdrawalRequested(
         address indexed user,
         uint256 shareAmount,
-        uint256 tokenId
+        uint256 tokenId,
+        uint256 fee
     );
     event WithdrawalRequestCanceled(
         address indexed user,
@@ -129,9 +139,18 @@ contract BinaryVaultFacet is
         _;
     }
 
+    modifier initialier() {
+        BinaryVaultFacetStorage.Layout storage s = BinaryVaultFacetStorage
+            .layout();
+        require(!s.initialized, "Already initialized");
+        _;
+        s.initialized = true;
+    }
+
     function initialize(address underlyingToken_, address config_)
         external
         onlyOwner
+        initialier
     {
         require(underlyingToken_ != address(0), "ZERO_ADDRESS");
         require(config_ != address(0), "ZERO_ADDRESS");
@@ -141,6 +160,8 @@ contract BinaryVaultFacet is
         s.underlyingTokenAddress = underlyingToken_;
         s.config = IBinaryConfig(config_);
         s.withdrawalDelayTime = 24 hours;
+
+        emit ConfigChanged(config_);
     }
 
     /// @notice Whitelist market on the vault
@@ -226,7 +247,9 @@ contract BinaryVaultFacet is
                 tokenId,
                 tokenId,
                 amount,
-                newShares
+                newShares,
+                amount,
+                amount
             );
         } else {
             // Current share amount of this token ID;
@@ -252,7 +275,10 @@ contract BinaryVaultFacet is
                 tokenId,
                 newTokenId,
                 amount,
-                newShares
+                newShares,
+                s.recentSnapshots[newTokenId],
+                (s.shareBalances[newTokenId] * s.totalDepositedAmount) /
+                    s.totalShareSupply
             );
         }
 
@@ -321,7 +347,14 @@ contract BinaryVaultFacet is
 
         IBinaryVaultNFTFacet(address(this)).mint(msg.sender);
 
-        emit PositionMerged(msg.sender, tokenIds, _newTokenId);
+        emit PositionMerged(
+            msg.sender,
+            tokenIds,
+            _newTokenId,
+            s.recentSnapshots[_newTokenId],
+            (s.shareBalances[_newTokenId] * s.totalDepositedAmount) /
+                s.totalShareSupply
+        );
     }
 
     /// @notice Request withdrawal (This request will be delayed for withdrawalDelayTime)
@@ -382,7 +415,12 @@ contract BinaryVaultFacet is
         s.pendingWithdrawalTokenAmount += underlyingTokenAmount;
         s.pendingWithdrawalShareAmount += shareAmount;
 
-        emit WithdrawalRequested(msg.sender, shareAmount, tokenId);
+        emit WithdrawalRequested(
+            msg.sender,
+            shareAmount,
+            tokenId,
+            _request.fee
+        );
 
         _updateExposureAmount();
     }
@@ -415,7 +453,7 @@ contract BinaryVaultFacet is
 
         (
             uint256 shareBalance,
-            ,
+            uint256 tokenValue,
             uint256 netValue,
             uint256 fee
         ) = getSharesOfToken(tokenId);
@@ -441,6 +479,7 @@ contract BinaryVaultFacet is
         uint256 initialInvest = s.initialInvestments[tokenId];
 
         uint256 newTokenId;
+        uint256 newSnapshot;
         if (shareAmount < shareBalance) {
             // Mint new one for dust
             newTokenId = IBinaryVaultNFTFacet(address(this)).nextTokenId();
@@ -449,10 +488,11 @@ contract BinaryVaultFacet is
                 ((shareBalance - shareAmount) * initialInvest) /
                 shareBalance;
 
-            s.recentSnapshots[newTokenId] =
+            newSnapshot =
                 s.recentSnapshots[tokenId] -
                 (shareAmount * s.recentSnapshots[tokenId]) /
                 shareBalance;
+            s.recentSnapshots[newTokenId] = newSnapshot;
             IBinaryVaultNFTFacet(address(this)).mint(user);
         }
 
@@ -475,7 +515,10 @@ contract BinaryVaultFacet is
             newTokenId,
             redeemAmount,
             shareAmount,
-            shareBalance - shareAmount
+            shareBalance - shareAmount,
+            newSnapshot,
+            tokenValue > redeemAmount ? tokenValue - redeemAmount : 0,
+            fee
         );
     }
 
@@ -683,11 +726,16 @@ contract BinaryVaultFacet is
 
         if (loseAmount - fee2 > wonAmount - remainingAmountForWon) {
             // winner will claim: amount * 2 * 95%, and we will charge trading fee amount * 5%, so amount * 5% will remain in vault. this is same as fee1 amount.
-            // for lose transaction, 95% will remain in vault, and we will charge trading fee amount * 5% 
+            // for lose transaction, 95% will remain in vault, and we will charge trading fee amount * 5%
             // deposit amount: loseAmount - fee2, payout amount: wonAmount - remainingAmountForWon
-            s.totalDepositedAmount += (loseAmount - fee2) - (wonAmount - remainingAmountForWon);
+            s.totalDepositedAmount +=
+                (loseAmount - fee2) -
+                (wonAmount - remainingAmountForWon);
         } else {
-            uint256 escapeAmount = wonAmount + fee2 - remainingAmountForWon - loseAmount;
+            uint256 escapeAmount = wonAmount +
+                fee2 -
+                remainingAmountForWon -
+                loseAmount;
             s.totalDepositedAmount = s.totalDepositedAmount >= escapeAmount
                 ? s.totalDepositedAmount - escapeAmount
                 : 0;
@@ -896,19 +944,19 @@ contract BinaryVaultFacet is
 
     /// @notice constructs manifest metadata in plaintext for base64 encoding
     /// @param _tokenId token id
-    /// @return _manifest manifest for base64 encoding
+    /// @return _manifestInJson manifest for base64 encoding
     function getManifestPlainText(uint256 _tokenId)
-        internal
+        external
         view
         virtual
-        returns (string memory _manifest)
+        returns (string memory _manifestInJson)
     {
         BinaryVaultFacetStorage.Layout storage s = BinaryVaultFacetStorage
             .layout();
 
         string memory image = getImagePlainText(_tokenId);
 
-        _manifest = string(
+        string memory _manifest = string(
             abi.encodePacked(
                 '{"name": ',
                 '"',
@@ -920,17 +968,8 @@ contract BinaryVaultFacet is
                 '"}'
             )
         );
-    }
 
-    function generateTokenURI(uint256 tokenId)
-        external
-        view
-        returns (string memory)
-    {
-        string memory output = getManifestPlainText(tokenId);
-        string memory json = Base64.encode(bytes(output));
-
-        return string(abi.encodePacked("data:application/json;base64,", json));
+        _manifestInJson = Base64.encode(bytes(_manifest));
     }
 
     function cancelExpiredWithdrawalRequest(uint256 tokenId)
@@ -1145,28 +1184,34 @@ contract BinaryVaultFacet is
         return BinaryVaultFacetStorage.layout().watermark;
     }
 
-    function pendingWithdrawalShareAmount() external view returns (uint256) {
-        return BinaryVaultFacetStorage.layout().pendingWithdrawalShareAmount;
-    }
-
-    function pendingWithdrawalTokenAmount() external view returns (uint256) {
-        return BinaryVaultFacetStorage.layout().pendingWithdrawalTokenAmount;
+    function pendingWithdrawalAmount()
+        external
+        view
+        returns (uint256, uint256)
+    {
+        return (
+            BinaryVaultFacetStorage.layout().pendingWithdrawalTokenAmount,
+            BinaryVaultFacetStorage.layout().pendingWithdrawalShareAmount
+        );
     }
 
     function withdrawalDelayTime() external view returns (uint256) {
         return BinaryVaultFacetStorage.layout().withdrawalDelayTime;
     }
 
-    function isDepositPaused() external view returns (bool) {
-        return BinaryVaultFacetStorage.layout().pauseNewDeposit;
-    }
-
     function isWhitelistedUser(address user) external view returns (bool) {
         return BinaryVaultFacetStorage.layout().whitelistedUser[user];
     }
 
-    function isUseWhitelist() external view returns (bool) {
-        return BinaryVaultFacetStorage.layout().useWhitelist;
+    function isUseWhitelistAndIsDepositPaused()
+        external
+        view
+        returns (bool, bool)
+    {
+        return (
+            BinaryVaultFacetStorage.layout().useWhitelist,
+            BinaryVaultFacetStorage.layout().pauseNewDeposit
+        );
     }
 
     function _updateExposureAmount() internal {
@@ -1204,7 +1249,7 @@ contract BinaryVaultFacet is
     }
 
     function pluginSelectors() private pure returns (bytes4[] memory s) {
-        s = new bytes4[](42);
+        s = new bytes4[](40);
         s[0] = IBinaryVault.claimBettingRewards.selector;
         s[1] = IBinaryVault.onRoundExecuted.selector;
         s[2] = IBinaryVault.getMaxHourlyExposure.selector;
@@ -1225,7 +1270,7 @@ contract BinaryVaultFacet is
         s[17] = IBinaryVaultFacet.getPendingRiskFromBet.selector;
         s[18] = IBinaryVaultFacet.withdrawManagementFee.selector;
         s[19] = IBinaryVaultFacet.getManagementFee.selector;
-        s[20] = IBinaryVaultFacet.generateTokenURI.selector;
+        s[20] = IBinaryVaultFacet.getManifestPlainText.selector;
 
         s[21] = IBinaryVaultFacet.config.selector;
         s[22] = IBinaryVaultFacet.underlyingTokenAddress.selector;
@@ -1237,18 +1282,15 @@ contract BinaryVaultFacet is
         s[28] = IBinaryVaultFacet.totalShareSupply.selector;
         s[29] = IBinaryVaultFacet.totalDepositedAmount.selector;
         s[30] = IBinaryVaultFacet.watermark.selector;
-        s[31] = IBinaryVaultFacet.pendingWithdrawalShareAmount.selector;
-        s[32] = IBinaryVaultFacet.pendingWithdrawalTokenAmount.selector;
+        s[31] = IBinaryVaultFacet.pendingWithdrawalAmount.selector;
         s[33] = IBinaryVaultFacet.withdrawalDelayTime.selector;
-
-        s[34] = IBinaryVaultFacet.isDepositPaused.selector;
+        s[32] = IBinaryVault.updateExposureAmount.selector;
+        s[34] = IBinaryVault.getCurrentHourlyExposureAmount.selector;
         s[35] = IBinaryVaultFacet.isWhitelistedUser.selector;
-        s[36] = IBinaryVaultFacet.isUseWhitelist.selector;
+        s[36] = IBinaryVaultFacet.isUseWhitelistAndIsDepositPaused.selector;
         s[37] = IBinaryVaultFacet.enableUseWhitelist.selector;
         s[38] = IBinaryVaultFacet.enablePauseDeposit.selector;
         s[39] = IBinaryVaultFacet.setWhitelistUser.selector;
-        s[40] = IBinaryVault.updateExposureAmount.selector;
-        s[41] = IBinaryVault.getCurrentHourlyExposureAmount.selector;
     }
 
     function pluginMetadata()

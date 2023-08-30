@@ -38,7 +38,7 @@ contract BinaryConfig is Ownable, IBinaryConfig {
     address public treasuryForReferrals;
 
     constructor(
-        uint16 tradingFee_,
+        uint256 tradingFee_,
         address treasury_,
         address treasuryForReferrals_
     ) Ownable() {

@@ -12,7 +12,7 @@ import {IBinaryVaultPluginImpl} from "../../interfaces/binary/IBinaryVaultPlugin
 import {IBinaryVaultNFTFacet, ISolidStateERC721} from "../../interfaces/binary/IBinaryVaultNFTFacet.sol";
 
 interface IBinaryVaultFacet {
-    function generateTokenURI(uint256 tokenId)
+    function getManifestPlainText(uint256 tokenId)
         external
         view
         returns (string memory);
@@ -26,6 +26,8 @@ library BinaryVaultNFTFacetStorage {
     using Counters for Counters.Counter;
     struct Layout {
         Counters.Counter counter;
+        // prevent to call initialize function twice
+        bool initialized;
     }
 
     bytes32 internal constant STORAGE_SLOT =
@@ -58,9 +60,18 @@ contract BinaryVaultNFTFacet is
         _;
     }
 
+    modifier initialier() {
+        BinaryVaultNFTFacetStorage.Layout storage s = BinaryVaultNFTFacetStorage
+            .layout();
+        require(!s.initialized, "Already initialized");
+        _;
+        s.initialized = true;
+    }
+
     function initialize(string memory name_, string memory symbol_)
         external
         onlyOwner
+        initialier
     {
         ERC721MetadataStorage.layout().name = name_;
         ERC721MetadataStorage.layout().symbol = symbol_;
@@ -73,7 +84,10 @@ contract BinaryVaultNFTFacet is
         override(ERC721Metadata, IERC721Metadata)
         returns (string memory)
     {
-        return IBinaryVaultFacet(address(this)).generateTokenURI(tokenId);
+        string memory json = IBinaryVaultFacet(address(this))
+            .getManifestPlainText(tokenId);
+
+        return string(abi.encodePacked("data:application/json;base64,", json));
     }
 
     function _nextTokenId() internal view returns (uint256) {
