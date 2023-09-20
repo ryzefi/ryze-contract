@@ -52,6 +52,8 @@ contract BinaryMarket is
         bool claimed; // default false
     }
 
+    uint256 private constant MAX_BET_INTERVAL = 3600; // 1 hour
+
     /// @dev Market Data
     string public marketName;
     IOracle public oracle;
@@ -75,6 +77,9 @@ contract BinaryMarket is
 
     // @dev users who placed bet
     mapping(uint8 => mapping(uint256 => address[])) public users; // timeframe id => round id => user addresses
+
+    mapping(uint8 => bool) public disabledTimeframes; // timeframe id => bool
+    mapping(uint8 => uint256) public explicitMaxBetAmounts; // timeframe id => max bet amount
 
     /// @dev This should be modified
     uint256 public minBetAmount;
@@ -130,6 +135,8 @@ contract BinaryMarket is
         uint256 indexed epoch,
         address[] users
     );
+
+    event GenesisStartTimeSet(uint256 oldTime, uint256 newTime);
 
     event OracleChanged(address indexed oldOracle, address indexed newOracle);
     event MarketNameChanged(string oldName, string newName);
@@ -261,14 +268,17 @@ contract BinaryMarket is
         // Gas efficient
         TimeFrame[] memory _timeframes = timeframes;
         uint256 length = _timeframes.length;
-        // We have 1m, 5m and 15m timeframes. So we will set genesisStartBlockTime base on 15m timeframes.
+        // We have various timeframes. So we will set genesisStartBlockTime base on MAX_BET_INTERVAL.
         genesisStartBlockTimestamp =
             block.timestamp -
-            (block.timestamp % _timeframes[length - 1].interval);
+            (block.timestamp % MAX_BET_INTERVAL);
         for (uint256 i = 0; i < length; i = i + 1) {
-            _startRound(_timeframes[i].id, 0);
+            uint256 epoch = getRoundIdAt(_timeframes[i].id, block.timestamp);
+            _startRound(_timeframes[i].id, epoch);
         }
         genesisStartOnce = true;
+
+        emit GenesisStartTimeSet(0, genesisStartBlockTimestamp);
     }
 
     /**
@@ -514,7 +524,7 @@ contract BinaryMarket is
     }
 
     /// @dev currentMaxExposure, currentBet, futureBet amounts
-    function _getBettableAmounts()
+    function _getBettableAmounts(uint8 timeframeId)
         private
         view
         returns (
@@ -523,6 +533,20 @@ contract BinaryMarket is
             uint256 futureAmount
         )
     {
+        bool isDisabled = disabledTimeframes[timeframeId];
+        if (isDisabled) {
+            return (0, 0, 0);
+        }
+
+        uint256 explicitAmount = explicitMaxBetAmounts[timeframeId];
+
+        if (explicitAmount > 0) {
+            uint256 exposure = explicitAmount;
+            uint256 maxBet = (explicitAmount * config.bettingAmountBips()) /
+                config.FEE_BASE();
+            return (exposure, maxBet, maxBet / 2);
+        }
+
         uint256 maxHourlyExposure = vault.getCurrentHourlyExposureAmount();
 
         uint256 totalBetsForInterval = totalBetsInInterval;
@@ -569,7 +593,9 @@ contract BinaryMarket is
             direction = Position.Bear;
         }
 
-        (uint256 currentMaxExposureAmount, , ) = _getBettableAmounts();
+        (uint256 currentMaxExposureAmount, , ) = _getBettableAmounts(
+            timeframeId
+        );
 
         if (currentMaxExposureAmount < exposureAmount) {
             uint256 deltaExposure = exposureAmount - currentMaxExposureAmount;
@@ -602,6 +628,7 @@ contract BinaryMarket is
             }
 
             if (revertedCount > 0) {
+                round.totalAmount -= accumulatedBets;
                 uint256 toDrop = userList.length - revertedCount;
                 if (toDrop > 0) {
                     // solhint-disable-next-line
@@ -1020,10 +1047,17 @@ contract BinaryMarket is
     }
 
     /// @dev set timeframes
-    function setTimeframes(TimeFrame[] memory timeframes_) external onlyAdmin {
+    function addTimeframes(TimeFrame[] memory timeframes_, bool isNew)
+        external
+        onlyAdmin
+    {
         uint256 length = timeframes_.length;
         require(length > 0, "INVALID_ARRAY_LENGTH");
-        delete timeframes;
+
+        if (isNew) {
+            delete timeframes;
+            totalBetsInInterval = 0;
+        }
 
         uint256 _totalBets;
         for (uint256 i = 0; i < length; i = i + 1) {
@@ -1031,7 +1065,7 @@ contract BinaryMarket is
             _totalBets += 1 hours / timeframes_[i].interval;
         }
 
-        totalBetsInInterval = _totalBets;
+        totalBetsInInterval += _totalBets;
     }
 
     function getCurrentBettableAmount(uint8 timeframeId, uint256 epoch)
@@ -1040,12 +1074,44 @@ contract BinaryMarket is
         returns (uint256)
     {
         uint256 currentEpoch = getCurrentRoundId(timeframeId);
-
-        (, uint256 betAmount, uint256 futureBet) = _getBettableAmounts();
+        (, uint256 betAmount, uint256 futureBet) = _getBettableAmounts(
+            timeframeId
+        );
         if (epoch > currentEpoch) {
             return futureBet;
         } else {
             return betAmount;
         }
+    }
+
+    function disableTimeframe(uint8 timeframeId, bool value)
+        external
+        onlyAdmin
+    {
+        require(disabledTimeframes[timeframeId] != value, "Already set");
+        disabledTimeframes[timeframeId] = value;
+
+        for (uint256 i = 0; i < timeframes.length; i++) {
+            if (timeframes[i].id == timeframeId) {
+                if (!value) {
+                    totalBetsInInterval += 1 hours / timeframes[i].interval;
+                } else {
+                    totalBetsInInterval -= 1 hours / timeframes[i].interval;
+                }
+                break;
+            }
+        }
+    }
+
+    function setExplicitMaxBetAmount(uint8 timeframeId, uint256 value)
+        external
+        onlyAdmin
+    {
+        explicitMaxBetAmounts[timeframeId] = value;
+    }
+
+    function setGenesisStartTime(uint256 timestamp) external onlyAdmin {
+        emit GenesisStartTimeSet(genesisStartBlockTimestamp, timestamp);
+        genesisStartBlockTimestamp = timestamp;
     }
 }
