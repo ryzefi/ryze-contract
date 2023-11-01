@@ -41,7 +41,6 @@ library BinaryVaultFacetStorage {
         bool useWhitelist;
         // prevent to call initialize function twice
         bool initialized;
-
         // For credit
         address creditToken;
     }
@@ -175,9 +174,11 @@ contract BinaryVaultBaseFacet is IBinaryVaultBaseFacet, IBinaryVaultPluginImpl {
         return BinaryVaultFacetStorage.layout().underlyingTokenAddress;
     }
 
-    function whitelistMarkets(
-        address market
-    ) external view returns (bool, uint256) {
+    function whitelistMarkets(address market)
+        external
+        view
+        returns (bool, uint256)
+    {
         return (
             BinaryVaultFacetStorage
                 .layout()
@@ -221,9 +222,11 @@ contract BinaryVaultBaseFacet is IBinaryVaultBaseFacet, IBinaryVaultPluginImpl {
         return BinaryVaultFacetStorage.layout().shareBalances[tokenId];
     }
 
-    function initialInvestments(
-        uint256 tokenId
-    ) external view returns (uint256) {
+    function initialInvestments(uint256 tokenId)
+        external
+        view
+        returns (uint256)
+    {
         return BinaryVaultFacetStorage.layout().initialInvestments[tokenId];
     }
 
@@ -231,9 +234,11 @@ contract BinaryVaultBaseFacet is IBinaryVaultBaseFacet, IBinaryVaultPluginImpl {
         return BinaryVaultFacetStorage.layout().recentSnapshots[tokenId];
     }
 
-    function withdrawalRequests(
-        uint256 tokenId
-    ) external view returns (BinaryVaultDataType.WithdrawalRequest memory) {
+    function withdrawalRequests(uint256 tokenId)
+        external
+        view
+        returns (BinaryVaultDataType.WithdrawalRequest memory)
+    {
         return BinaryVaultFacetStorage.layout().withdrawalRequests[tokenId];
     }
 
@@ -253,12 +258,14 @@ contract BinaryVaultBaseFacet is IBinaryVaultBaseFacet, IBinaryVaultPluginImpl {
     }
 
     function setCreditToken(address _token) external onlyOwner {
-        BinaryVaultFacetStorage.Layout storage s = BinaryVaultFacetStorage.layout();
+        BinaryVaultFacetStorage.Layout storage s = BinaryVaultFacetStorage
+            .layout();
         s.creditToken = _token;
     }
 
     function getCreditToken() external view returns (address) {
-        BinaryVaultFacetStorage.Layout storage s = BinaryVaultFacetStorage.layout();
+        BinaryVaultFacetStorage.Layout storage s = BinaryVaultFacetStorage
+            .layout();
         return s.creditToken;
     }
 

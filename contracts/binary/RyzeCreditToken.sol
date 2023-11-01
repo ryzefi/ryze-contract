@@ -49,9 +49,10 @@ contract RyzeCreditToken is
     /// @notice Set the base URI
     /// @dev Only owner
     /// @param _uri The base URI
-    function setBaseUri(
-        string memory _uri
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setBaseUri(string memory _uri)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
         _setBaseURI(_uri);
     }
 
@@ -59,10 +60,10 @@ contract RyzeCreditToken is
     /// @dev Only owner
     /// @param _tokenId The token ID
     /// @param _tokenURI The token URI
-    function setURI(
-        uint256 _tokenId,
-        string memory _tokenURI
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setURI(uint256 _tokenId, string memory _tokenURI)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
         _setURI(_tokenId, _tokenURI);
     }
 
@@ -84,10 +85,10 @@ contract RyzeCreditToken is
     /// @dev Only owner
     /// @param _users The list of users
     /// @param _whitelisted Whitelisted or not
-    function whitelist(
-        address[] memory _users,
-        bool _whitelisted
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function whitelist(address[] memory _users, bool _whitelisted)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
         for (uint256 i = 0; i < _users.length; ++i) {
             whitelisted[_users[i]] = _whitelisted;
         }
@@ -139,18 +140,19 @@ contract RyzeCreditToken is
     /// @notice Returns the URI of token ID
     /// @param tokenId The token ID
     /// @return The URI of the token ID
-    function uri(
-        uint256 tokenId
-    ) public view override(ERC1155, ERC1155URIStorage) returns (string memory) {
+    function uri(uint256 tokenId)
+        public
+        view
+        override(ERC1155, ERC1155URIStorage)
+        returns (string memory)
+    {
         return ERC1155URIStorage.uri(tokenId);
     }
 
     /**
      * @dev See {IERC165-supportsInterface}.
      */
-    function supportsInterface(
-        bytes4 interfaceId
-    )
+    function supportsInterface(bytes4 interfaceId)
         public
         view
         virtual

@@ -60,10 +60,14 @@ contract BinaryVaultBetFacet is
     ) external virtual onlyMarket {
         BinaryVaultFacetStorage.Layout storage s = BinaryVaultFacetStorage
             .layout();
-        
+
         if (feeAmount > 0) {
             // Send fee amount to fee wallet
-            IERC20(s.underlyingTokenAddress).safeTransferFrom(from, feeWallet, feeAmount);
+            IERC20(s.underlyingTokenAddress).safeTransferFrom(
+                from,
+                feeWallet,
+                feeAmount
+            );
         }
         if (!creditUsed) {
             IERC20(s.underlyingTokenAddress).safeTransferFrom(
@@ -72,7 +76,11 @@ contract BinaryVaultBetFacet is
                 amount
             );
         } else {
-            ICreditToken(s.creditToken).burnBatch(from, creditTokenIds, creditTokenAmounts);
+            ICreditToken(s.creditToken).burnBatch(
+                from,
+                creditTokenIds,
+                creditTokenAmounts
+            );
         }
         BinaryVaultDataType.BetData storage data = s.betData[endTime];
 
@@ -86,26 +94,38 @@ contract BinaryVaultBetFacet is
     /// @dev This function is used to update total deposited amount from user betting
     /// @param wonAmount amount won from user perspective (lost from vault perspective)
     /// @param loseAmount amount lost from user perspective (won from vault perspective)
-    function onRoundExecuted(uint256 wonAmount, uint256 loseAmount, uint256 wonCreditAmount, uint256 loseCreditAmount)
-        external
-        virtual
-        override
-        onlyMarket
-    {
+    function onRoundExecuted(
+        uint256 wonAmount,
+        uint256 loseAmount,
+        uint256 wonCreditAmount,
+        uint256 loseCreditAmount
+    ) external virtual override onlyMarket {
         BinaryVaultFacetStorage.Layout storage s = BinaryVaultFacetStorage
             .layout();
 
         uint256 tradingFeeBips = s.config.tradingFee();
-        uint256 fee1 = ((wonAmount - wonCreditAmount) * tradingFeeBips) / s.config.FEE_BASE();
-        uint256 fee2 = ((loseAmount - loseCreditAmount) * tradingFeeBips) / s.config.FEE_BASE();
+        uint256 fee1 = ((wonAmount - wonCreditAmount) * tradingFeeBips) /
+            s.config.FEE_BASE();
+        uint256 fee2 = ((loseAmount - loseCreditAmount) * tradingFeeBips) /
+            s.config.FEE_BASE();
 
         uint256 tradingFee = fee1 + fee2;
 
-        uint256 depositAmountTotal = wonAmount + loseAmount - (wonCreditAmount + loseCreditAmount);
-        uint256 claimAmountTotal = ((2 * wonAmount * (s.config.FEE_BASE() - s.config.tradingFee())) /
-                s.config.FEE_BASE());
-        uint256 outAmountTotal = claimAmountTotal + tradingFee;
-        
+        uint256 depositAmountTotal = wonAmount +
+            loseAmount -
+            (wonCreditAmount + loseCreditAmount);
+
+        uint256 claimAmountTotal_USDC = ((2 *
+            (wonAmount - wonCreditAmount) *
+            (s.config.FEE_BASE() - s.config.tradingFee())) /
+            s.config.FEE_BASE());
+
+        uint256 claimAmountTotal_Credit = (wonCreditAmount *
+            (s.config.FEE_BASE() - s.config.tradingFee())) /
+            s.config.FEE_BASE();
+
+        uint256 outAmountTotal = claimAmountTotal_USDC + claimAmountTotal_Credit + tradingFee;
+
         uint256 prevTvl = s.totalDepositedAmount;
 
         if (depositAmountTotal > outAmountTotal) {
@@ -154,13 +174,26 @@ contract BinaryVaultBetFacet is
         BinaryVaultFacetStorage.Layout storage s = BinaryVaultFacetStorage
             .layout();
 
-        uint256 claimAmount = isRefund
-            ? amount
-            : ((2 * amount * (s.config.FEE_BASE() - s.config.tradingFee())) /
+        uint256 claimAmount;
+        if (isRefund) {
+            claimAmount = amount;
+        } else if (creditUsed) {
+            claimAmount =
+                (amount * (s.config.FEE_BASE() - s.config.tradingFee())) /
+                s.config.FEE_BASE();
+        } else {
+            claimAmount = ((2 *
+                amount *
+                (s.config.FEE_BASE() - s.config.tradingFee())) /
                 s.config.FEE_BASE());
-        
+        }
+
         if (creditUsed && isRefund) {
-            ICreditToken(s.creditToken).mintBatch(user, creditTokenIds, creditTokenAmounts);
+            ICreditToken(s.creditToken).mintBatch(
+                user,
+                creditTokenIds,
+                creditTokenAmounts
+            );
         } else {
             IERC20(s.underlyingTokenAddress).safeTransfer(user, claimAmount);
         }

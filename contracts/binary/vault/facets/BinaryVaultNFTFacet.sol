@@ -66,17 +66,16 @@ contract BinaryVaultNFTFacet is
         s.initialized = true;
     }
 
-    function initialize(
-        string memory name_,
-        string memory symbol_
-    ) external onlyOwner initializer {
+    function initialize(string memory name_, string memory symbol_)
+        external
+        onlyOwner
+        initializer
+    {
         ERC721MetadataStorage.layout().name = name_;
         ERC721MetadataStorage.layout().symbol = symbol_;
     }
 
-    function tokenURI(
-        uint256 tokenId
-    )
+    function tokenURI(uint256 tokenId)
         external
         view
         virtual
@@ -109,9 +108,11 @@ contract BinaryVaultNFTFacet is
         _burn(tokenId);
     }
 
-    function tokensOfOwner(
-        address owner
-    ) external view returns (uint256[] memory) {
+    function tokensOfOwner(address owner)
+        external
+        view
+        returns (uint256[] memory)
+    {
         uint256 balance = _balanceOf(owner);
         uint256[] memory tokens = new uint256[](balance);
 
@@ -125,9 +126,11 @@ contract BinaryVaultNFTFacet is
     /// @notice constructs manifest metadata in plaintext for base64 encoding
     /// @param _tokenId token id
     /// @return _manifestInJson manifest for base64 encoding
-    function getManifestPlainText(
-        uint256 _tokenId
-    ) internal view returns (string memory _manifestInJson) {
+    function getManifestPlainText(uint256 _tokenId)
+        internal
+        view
+        returns (string memory _manifestInJson)
+    {
         BinaryVaultFacetStorage.Layout storage s = BinaryVaultFacetStorage
             .layout();
 
@@ -149,9 +152,11 @@ contract BinaryVaultNFTFacet is
         _manifestInJson = Base64.encode(bytes(_manifest));
     }
 
-    function getImagePlainText(
-        uint256 tokenId
-    ) internal view returns (string memory) {
+    function getImagePlainText(uint256 tokenId)
+        internal
+        view
+        returns (string memory)
+    {
         BinaryVaultFacetStorage.Layout storage s = BinaryVaultFacetStorage
             .layout();
 
@@ -194,9 +199,12 @@ contract BinaryVaultNFTFacet is
         return string(abi.encodePacked(baseURL, svgBase64Encoded));
     }
 
-    function getShareBipsExpression(
-        uint256 tokenId
-    ) internal view virtual returns (string memory) {
+    function getShareBipsExpression(uint256 tokenId)
+        internal
+        view
+        virtual
+        returns (string memory)
+    {
         BinaryVaultFacetStorage.Layout storage s = BinaryVaultFacetStorage
             .layout();
 
@@ -206,15 +214,18 @@ contract BinaryVaultNFTFacet is
         return string(abi.encodePacked(percentString, " %"));
     }
 
-    function getInitialInvestExpression(
-        uint256 tokenId
-    ) internal view virtual returns (string memory) {
+    function getInitialInvestExpression(uint256 tokenId)
+        internal
+        view
+        virtual
+        returns (string memory)
+    {
         BinaryVaultFacetStorage.Layout storage s = BinaryVaultFacetStorage
             .layout();
 
         uint256 _value = s.initialInvestments[tokenId];
-        string memory floatExpression = ((_value * 10 ** 2) /
-            10 ** IERC20Metadata(s.underlyingTokenAddress).decimals())
+        string memory floatExpression = ((_value * 10**2) /
+            10**IERC20Metadata(s.underlyingTokenAddress).decimals())
             .getFloatExpression();
         return
             string(
@@ -226,16 +237,19 @@ contract BinaryVaultNFTFacet is
             );
     }
 
-    function getCurrentValueExpression(
-        uint256 tokenId
-    ) internal view virtual returns (string memory) {
+    function getCurrentValueExpression(uint256 tokenId)
+        internal
+        view
+        virtual
+        returns (string memory)
+    {
         BinaryVaultFacetStorage.Layout storage s = BinaryVaultFacetStorage
             .layout();
 
         (, , uint256 netValue, ) = IBinaryVaultLiquidityFacet(address(this))
             .getSharesOfToken(tokenId);
-        string memory floatExpression = ((netValue * 10 ** 2) /
-            10 ** IERC20Metadata(s.underlyingTokenAddress).decimals())
+        string memory floatExpression = ((netValue * 10**2) /
+            10**IERC20Metadata(s.underlyingTokenAddress).decimals())
             .getFloatExpression();
         return
             string(
@@ -247,9 +261,12 @@ contract BinaryVaultNFTFacet is
             );
     }
 
-    function getWithdrawalExpression(
-        uint256 tokenId
-    ) internal view virtual returns (string memory) {
+    function getWithdrawalExpression(uint256 tokenId)
+        internal
+        view
+        virtual
+        returns (string memory)
+    {
         BinaryVaultFacetStorage.Layout storage s = BinaryVaultFacetStorage
             .layout();
 

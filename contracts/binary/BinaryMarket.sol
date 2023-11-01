@@ -3,7 +3,6 @@
 pragma solidity 0.8.18;
 
 import {Pausable} from "@openzeppelin/contracts/security/Pausable.sol";
-import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
@@ -11,6 +10,7 @@ import {IBinaryMarket, IOracle} from "../interfaces/binary/IBinaryMarket.sol";
 import {IBinaryConfig} from "../interfaces/binary/IBinaryConfig.sol";
 import {IBinaryVault} from "../interfaces/binary/IBinaryVault.sol";
 import {ICreditToken} from "../interfaces/binary/ICreditToken.sol";
+import {IAntiMev} from "../interfaces/binary/IAntiMev.sol";
 
 contract BinaryMarket is
     Pausable,
@@ -18,8 +18,6 @@ contract BinaryMarket is
     AccessControl,
     ReentrancyGuard
 {
-    using SafeERC20 for IERC20;
-
     bytes32 private constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
 
     enum Position {
@@ -66,6 +64,7 @@ contract BinaryMarket is
     IOracle public oracle;
     IBinaryVault public immutable vault;
     IBinaryConfig public config;
+    IAntiMev private antiMev;
 
     /// @dev Timeframes supported in this market.
     TimeFrame[] public timeframes;
@@ -206,6 +205,17 @@ contract BinaryMarket is
     function setName(string memory name_) external onlyAdmin {
         emit MarketNameChanged(marketName, name_);
         marketName = name_;
+    }
+
+    /**
+     * @notice Set antiMev SC
+     * @dev Only owner can set antimev or disable it
+     * @param antiMev_ CA to set or null to disable
+     */
+    function setAntiMev(IAntiMev antiMev_) external onlyAdmin {
+        // can be empty to disable the feature
+        antiMev = antiMev_;
+        // we don't want to emit event here on purpose
     }
 
     /**
@@ -533,10 +543,17 @@ contract BinaryMarket is
 
         if (!isBull && !isBear) {
             willDepositAmount = round.bullAmount + round.bearAmount;
-            depositCreditAmount = round.bullCreditAmount + round.bearCreditAmount;
+            depositCreditAmount =
+                round.bullCreditAmount +
+                round.bearCreditAmount;
         }
 
-        vault.onRoundExecuted(willClaimAmount, willDepositAmount, claimCreditAmount, depositCreditAmount);
+        vault.onRoundExecuted(
+            willClaimAmount,
+            willDepositAmount,
+            claimCreditAmount,
+            depositCreditAmount
+        );
 
         emit EndRound(timeframeId, epoch, timestamp, round.closePrice);
     }
@@ -626,7 +643,9 @@ contract BinaryMarket is
             for (uint256 i = userList.length - 1; i > 0; i--) {
                 address user = userList[i];
                 BetInfo storage betInfo = ledger[timeframeId][epoch][user];
-                if (exposureAmount - currentMaxExposureAmount <= accumulatedBets) {
+                if (
+                    exposureAmount - currentMaxExposureAmount <= accumulatedBets
+                ) {
                     break;
                 }
 
@@ -665,22 +684,26 @@ contract BinaryMarket is
         }
     }
 
-    function _getCreditData(uint8 timeframeId, uint256 amount, bool creditUsed) internal view returns(uint256[] memory ids, uint256[] memory amounts) {
+    function _getCreditData(
+        uint8 timeframeId,
+        uint256 amount,
+        bool creditUsed
+    ) internal view returns (uint256[] memory ids, uint256[] memory amounts) {
         if (creditUsed) {
-            
             ids = new uint256[](creditTokenIds[timeframeId].length);
             amounts = new uint256[](creditTokenIds[timeframeId].length);
             uint256 _amount = amount;
             uint256 count;
-            
-            for (uint256 i; i < creditTokenIds[timeframeId].length; i ++) {
-                uint256 balance = ICreditToken(vault.getCreditToken()).balanceOf(msg.sender, creditTokenIds[timeframeId][i]);
+
+            for (uint256 i; i < creditTokenIds[timeframeId].length; i++) {
+                uint256 balance = ICreditToken(vault.getCreditToken())
+                    .balanceOf(msg.sender, creditTokenIds[timeframeId][i]);
                 if (balance > 0) {
                     uint256 burnAmount = balance > _amount ? _amount : balance;
                     ids[count] = creditTokenIds[timeframeId][i];
                     amounts[count] = burnAmount;
                     _amount -= burnAmount;
-                    count ++;
+                    count++;
                 }
 
                 if (_amount == 0) {
@@ -701,101 +724,137 @@ contract BinaryMarket is
         }
     }
 
+    struct PositionParams {
+        /// @notice amount Bet amount
+        uint256 amount;
+        /// @notice timeframeId id of 1m/3m/5m
+        uint8 timeframeId;
+        /// @notice epoch
+        uint256 epoch;
+        /// @notice position bull/bear
+        Position position;
+        /// @notice  creditUsed bool
+        bool creditUsed;
+        /// @notice feeWallet wallet address which will receive fee
+        address feeWallet;
+        /// @notice feeBps fee percent, 10000-based value
+        uint256 feeBps;
+        /// @notice challenge Challenge for anti-mev
+        bytes challenge;
+    }
+
     /**
      * @dev Bet bear position
-     * @param amount Bet amount
-     * @param timeframeId id of 1m/5m/10m
-     * @param position bull/bear
-     * @param creditUsed bool
-     * @param feeWallet wallet address which will receive fee
-     * @param feeBps fee percent, 10000-based value
+     * @param params open position parameters
      */
-    function openPosition(
-        uint256 amount,
-        uint8 timeframeId,
-        uint256 epoch,
-        Position position,
-        bool creditUsed,
-        address feeWallet,
-        uint256 feeBps
-    ) external whenNotPaused {
+    function openPosition(PositionParams memory params) external whenNotPaused {
+        if (address(antiMev) != address(0)) {
+            antiMev.challenge(params.challenge);
+        }
+
         require(
-            genesisStartOnce && genesisLockedOnce[timeframeId],
+            genesisStartOnce && genesisLockedOnce[params.timeframeId],
             "Can only place bet after genesisStartOnce and genesisLockedOnce"
         );
 
         uint256 feeAmount;
-        if (feeWallet != address(0) && !creditUsed) {
-            require(feeBps < config.FEE_BASE(), "Invalid fee bps");
-            feeAmount = amount * feeBps / config.FEE_BASE();
-            amount = amount - feeAmount;
+        if (params.feeWallet != address(0) && !params.creditUsed) {
+            require(params.feeBps < config.FEE_BASE(), "Invalid fee bps");
+            feeAmount = (params.amount * params.feeBps) / config.FEE_BASE();
+            params.amount = params.amount - feeAmount;
         }
 
         require(
-            amount >= minBetAmount,
+            params.amount >= minBetAmount,
             "Bet amount must be greater than minBetAmount"
         );
         require(
-            ledger[timeframeId][epoch][msg.sender].amount == 0,
+            ledger[params.timeframeId][params.epoch][msg.sender].amount == 0,
             "Can only bet once per round"
         );
 
-        if (creditUsed) {
-            require(creditTokenIds[timeframeId].length > 0, "Credit token is not suppored in this timeframe");
+        if (params.creditUsed) {
+            require(
+                creditTokenIds[params.timeframeId].length > 0,
+                "Credit token is not suppored in this timeframe"
+            );
         }
 
         vault.updateExposureAmount();
 
         require(
-            getCurrentBettableAmount(timeframeId, epoch) >= amount,
+            getCurrentBettableAmount(params.timeframeId, params.epoch) >=
+                params.amount,
             "Bet amount exceeds current max amount."
         );
 
-        if (rounds[timeframeId][epoch].startBlockTime == 0) {
-            _startRound(timeframeId, epoch);
+        if (rounds[params.timeframeId][params.epoch].startBlockTime == 0) {
+            _startRound(params.timeframeId, params.epoch);
         }
-        require(_bettable(timeframeId, epoch), "Round not bettable");
+        require(
+            _bettable(params.timeframeId, params.epoch),
+            "Round not bettable"
+        );
 
         // Transfer token to vault
         // Credit token ID should start from 1.
-        (uint256[] memory _creditIds, uint256[] memory _creditAmounts) = _getCreditData(timeframeId, amount, creditUsed);
-        vault.onPlaceBet(amount, msg.sender, getBlockTimeForEpoch(timeframeId, epoch + 2), uint8(position), creditUsed, _creditIds, _creditAmounts, feeWallet, feeAmount);
+        (
+            uint256[] memory _creditIds,
+            uint256[] memory _creditAmounts
+        ) = _getCreditData(
+                params.timeframeId,
+                params.amount,
+                params.creditUsed
+            );
+        vault.onPlaceBet(
+            params.amount,
+            msg.sender,
+            getBlockTimeForEpoch(params.timeframeId, params.epoch + 2),
+            uint8(params.position),
+            params.creditUsed,
+            _creditIds,
+            _creditAmounts,
+            params.feeWallet,
+            feeAmount
+        );
 
         // Update round data
-        Round storage round = rounds[timeframeId][epoch];
-        round.totalAmount = round.totalAmount + amount;
+        Round storage round = rounds[params.timeframeId][params.epoch];
+        round.totalAmount = round.totalAmount + params.amount;
 
-        if (position == Position.Bear) {
-            round.bearAmount = round.bearAmount + amount;
-            if (creditUsed) {
-                round.bearCreditAmount += amount;
+        if (params.position == Position.Bear) {
+            round.bearAmount = round.bearAmount + params.amount;
+            if (params.creditUsed) {
+                round.bearCreditAmount += params.amount;
             }
         } else {
-            round.bullAmount = round.bullAmount + amount;
-            if (creditUsed) {
-                round.bullCreditAmount += amount;
+            round.bullAmount = round.bullAmount + params.amount;
+            if (params.creditUsed) {
+                round.bullCreditAmount += params.amount;
             }
         }
 
         // Update user data
-        BetInfo storage betInfo = ledger[timeframeId][epoch][msg.sender];
-        betInfo.position = position;
-        betInfo.amount = amount;
-        betInfo.creditUsed = creditUsed;
+        BetInfo storage betInfo = ledger[params.timeframeId][params.epoch][
+            msg.sender
+        ];
+        betInfo.position = params.position;
+        betInfo.amount = params.amount;
+        betInfo.creditUsed = params.creditUsed;
         betInfo.creditTokenIds = _creditIds;
         betInfo.creditTokenAmounts = _creditAmounts;
 
-        userRounds[timeframeId][msg.sender].push(epoch);
-        users[timeframeId][epoch].push(msg.sender);
+        userRounds[params.timeframeId][msg.sender].push(params.epoch);
+        users[params.timeframeId][params.epoch].push(msg.sender);
 
         emit PositionOpened(
             marketName,
             msg.sender,
-            amount,
-            timeframeId,
-            epoch,
-            position,
-            creditUsed
+            params.amount,
+            params.timeframeId,
+            params.epoch,
+            params.position,
+            params.creditUsed
         );
     }
 
@@ -1204,7 +1263,10 @@ contract BinaryMarket is
         genesisStartBlockTimestamp = timestamp;
     }
 
-    function setCreditTokenIds(uint8 timeframeId, uint256[] memory values) external onlyAdmin {
+    function setCreditTokenIds(uint8 timeframeId, uint256[] memory values)
+        external
+        onlyAdmin
+    {
         creditTokenIds[timeframeId] = values;
     }
 }

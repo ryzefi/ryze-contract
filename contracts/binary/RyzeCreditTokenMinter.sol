@@ -58,10 +58,10 @@ contract RyzeCreditTokenMinter is Ownable {
     /// @notice Set daily mint limit
     /// @dev Only owner
     /// @param _dailyMintLimit The daily mint limit
-    function setDailyMintLimit(
-        uint256 _tokenId,
-        uint256 _dailyMintLimit
-    ) external onlyOwner {
+    function setDailyMintLimit(uint256 _tokenId, uint256 _dailyMintLimit)
+        external
+        onlyOwner
+    {
         dailyMintLimit[_tokenId] = _dailyMintLimit;
         emit DailyMintLimitSet(_tokenId, _dailyMintLimit);
     }
@@ -85,11 +85,20 @@ contract RyzeCreditTokenMinter is Ownable {
             "Daily mint limit"
         );
         require(!isSignatureUsed[_signature], "Signature already used");
-        require(userTotalClaimed[_to] == _userTotalClaimed, "invalid claimed amount");
+        require(
+            userTotalClaimed[_to] == _userTotalClaimed,
+            "invalid claimed amount"
+        );
 
         // verify the signature
         bytes32 payloadHash = keccak256(
-            abi.encodePacked(_to, _tokenId, _amount, _userTotalClaimed, _generatedAt)
+            abi.encodePacked(
+                _to,
+                _tokenId,
+                _amount,
+                _userTotalClaimed,
+                _generatedAt
+            )
         );
         require(
             payloadHash.toEthSignedMessageHash().recover(_signature) ==
@@ -108,7 +117,11 @@ contract RyzeCreditTokenMinter is Ownable {
 
     /// @notice Returns last 24 hours mint amount
     /// @return amount Last 24 hours mint amount
-    function lastDayMint(uint256 _tokenId) public view returns (uint amount) {
+    function lastDayMint(uint256 _tokenId)
+        public
+        view
+        returns (uint256 amount)
+    {
         HourlyMint[] memory hourlyMints = hourlyMintsByTokenId[_tokenId];
 
         if (hourlyMints.length == 0) return 0;
@@ -131,7 +144,7 @@ contract RyzeCreditTokenMinter is Ownable {
     }
 
     /// @notice Record hourly mint
-    function _updateHourlyMint(uint256 tokenId, uint amount) internal {
+    function _updateHourlyMint(uint256 tokenId, uint256 amount) internal {
         HourlyMint[] storage hourlyMints = hourlyMintsByTokenId[tokenId];
 
         uint256 currentTimestamp = block.timestamp;

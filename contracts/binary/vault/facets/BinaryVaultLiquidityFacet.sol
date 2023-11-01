@@ -184,9 +184,11 @@ contract BinaryVaultLiquidityFacet is
 
     /// @notice Merge tokens into one, Burn existing ones and mint new one
     /// @param tokenIds Token ids which will be merged
-    function mergePositions(
-        uint256[] memory tokenIds
-    ) external virtual nonReentrant {
+    function mergePositions(uint256[] memory tokenIds)
+        external
+        virtual
+        nonReentrant
+    {
         uint256 shareAmounts = 0;
         uint256 initialInvests = 0;
         uint256 snapshots = 0;
@@ -242,10 +244,10 @@ contract BinaryVaultLiquidityFacet is
     /// @notice Request withdrawal (This request will be delayed for withdrawalDelayTime)
     /// @param shareAmount share amount to be burnt
     /// @param tokenId This is available when fromPosition is true
-    function requestWithdrawal(
-        uint256 shareAmount,
-        uint256 tokenId
-    ) external virtual {
+    function requestWithdrawal(uint256 shareAmount, uint256 tokenId)
+        external
+        virtual
+    {
         require(shareAmount > 0, "TOO_SMALL_AMOUNT");
         BinaryVaultFacetStorage.Layout storage s = BinaryVaultFacetStorage
             .layout();
@@ -309,9 +311,11 @@ contract BinaryVaultLiquidityFacet is
 
     /// @notice Execute withdrawal request if it passed enough time.
     /// @param tokenId withdrawal request id to be executed.
-    function executeWithdrawalRequest(
-        uint256 tokenId
-    ) external virtual nonReentrant {
+    function executeWithdrawalRequest(uint256 tokenId)
+        external
+        virtual
+        nonReentrant
+    {
         address user = msg.sender;
 
         require(
@@ -434,9 +438,10 @@ contract BinaryVaultLiquidityFacet is
         _updateExposureAmount();
     }
 
-    function cancelExpiredWithdrawalRequest(
-        uint256 tokenId
-    ) external onlyOwner {
+    function cancelExpiredWithdrawalRequest(uint256 tokenId)
+        external
+        onlyOwner
+    {
         BinaryVaultFacetStorage.Layout storage s = BinaryVaultFacetStorage
             .layout();
 
@@ -452,9 +457,7 @@ contract BinaryVaultLiquidityFacet is
     /// @notice Get shares of user.
     /// @param user address
     /// @return shares underlyingTokenAmount netValue fee their values
-    function getSharesOfUser(
-        address user
-    )
+    function getSharesOfUser(address user)
         public
         view
         virtual
@@ -488,9 +491,7 @@ contract BinaryVaultLiquidityFacet is
 
     /// @notice Get shares and underlying token amount of token
     /// @return shares tokenValue netValue fee - their values
-    function getSharesOfToken(
-        uint256 tokenId
-    )
+    function getSharesOfToken(uint256 tokenId)
         public
         view
         virtual
@@ -533,10 +534,11 @@ contract BinaryVaultLiquidityFacet is
     /// @dev We set from and to parameter so that we can avoid falling in gas limitation issue
     /// @param from tokenId where we will start to get management fee
     /// @param to tokenId where we will end to get management fee
-    function withdrawManagementFee(
-        uint256 from,
-        uint256 to
-    ) external virtual onlyOwner {
+    function withdrawManagementFee(uint256 from, uint256 to)
+        external
+        virtual
+        onlyOwner
+    {
         _withdrawManagementFee(from, to);
         emit ManagementFeeWithdrawed();
     }
@@ -573,14 +575,14 @@ contract BinaryVaultLiquidityFacet is
             s.watermark -= feeAmount;
             s.totalShareSupply -= feeShare;
 
-            uint256 sharePrice = (s.totalDepositedAmount * 10 ** 18) /
+            uint256 sharePrice = (s.totalDepositedAmount * 10**18) /
                 s.totalShareSupply;
-            if (sharePrice > 10 ** 18) {
+            if (sharePrice > 10**18) {
                 s.totalShareSupply = s.totalDepositedAmount;
                 for (uint256 tokenId = from; tokenId <= to; tokenId++) {
                     s.shareBalances[tokenId] =
                         (s.shareBalances[tokenId] * sharePrice) /
-                        10 ** 18;
+                        10**18;
                 }
             }
         }
@@ -672,9 +674,12 @@ contract BinaryVaultLiquidityFacet is
         return (exposureBips * tvl) / s.config.FEE_BASE();
     }
 
-    function getExposureAmountAt(
-        uint256 endTime
-    ) public view virtual returns (uint256 exposureAmount, uint8 direction) {
+    function getExposureAmountAt(uint256 endTime)
+        public
+        view
+        virtual
+        returns (uint256 exposureAmount, uint8 direction)
+    {
         BinaryVaultFacetStorage.Layout storage s = BinaryVaultFacetStorage
             .layout();
 
@@ -732,14 +737,18 @@ contract BinaryVaultLiquidityFacet is
         s[5] = IBinaryVaultLiquidityFacet.getSharesOfUser.selector;
         s[6] = IBinaryVaultLiquidityFacet.getSharesOfToken.selector;
         s[7] = BinaryVaultLiquidityFacet.withdrawManagementFee.selector;
-        s[8] = BinaryVaultLiquidityFacet.cancelExpiredWithdrawalRequest.selector;
+        s[8] = BinaryVaultLiquidityFacet
+            .cancelExpiredWithdrawalRequest
+            .selector;
         s[9] = BinaryVaultLiquidityFacet.getManagementFee.selector;
         s[10] = BinaryVaultLiquidityFacet.updateExposureAmount.selector;
         s[11] = IBinaryVaultLiquidityFacet.isFutureBettingAvailable.selector;
         s[12] = IBinaryVaultLiquidityFacet.getMaxHourlyExposure.selector;
         s[13] = IBinaryVaultLiquidityFacet.getExposureAmountAt.selector;
         s[14] = IBinaryVaultLiquidityFacet.getPendingRiskFromBet.selector;
-        s[15] = IBinaryVaultLiquidityFacet.getCurrentHourlyExposureAmount.selector;
+        s[15] = IBinaryVaultLiquidityFacet
+            .getCurrentHourlyExposureAmount
+            .selector;
     }
 
     function pluginMetadata()
