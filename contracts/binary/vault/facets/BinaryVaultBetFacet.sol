@@ -124,7 +124,9 @@ contract BinaryVaultBetFacet is
             (s.config.FEE_BASE() - s.config.tradingFee())) /
             s.config.FEE_BASE();
 
-        uint256 outAmountTotal = claimAmountTotal_USDC + claimAmountTotal_Credit + tradingFee;
+        uint256 outAmountTotal = claimAmountTotal_USDC +
+            claimAmountTotal_Credit +
+            tradingFee;
 
         uint256 prevTvl = s.totalDepositedAmount;
 
